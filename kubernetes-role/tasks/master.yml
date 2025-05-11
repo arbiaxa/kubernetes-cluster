@@ -1,0 +1,93 @@
+#master_node
+- name: 
+  apt:
+    name: '{{ node_packages }}'
+    state: present
+  
+- name: Updates
+  apt:
+    update_cache: yes
+
+- name: Disable SWAP
+  shell: |
+    swapoff -a
+
+- name: Disable SWAP in fstab
+  replace:
+     path: /etc/fstab
+     regexp: '^([^#].*?\sswap\s+sw\s+.*)$'
+     replace: '# \1' 
+     
+      
+     
+- name: Create an empty file for the containerd module
+  copy:
+     content:  |
+        overlay
+        br_netfilter
+     dest: /etc/modules-load.d/containerd.conf
+     force: no      
+     
+- name: Create an empty file for the k8s module
+  copy:
+     content:  |
+        - "net.bridge.bridge-nf-call-iptables  = 1"
+        - "net.ipv4.ip_forward                 = 1"
+        - "net.bridge.bridge-nf-call-ip6tables = 1"
+     dest:  /etc/sysctl.d/99-kubernetes-cri.conf
+     force: no           
+     
+         
+     
+     
+- name: immidiatly modules
+  shell: |
+     modprobe overlay
+     modprobe br_netfilter      
+ 
+ 
+ #docker    
+    
+- name: Create apt keyrings directory
+  file:
+     path: /etc/apt/keyrings
+     state: directory
+     mode: '0755'   
+     
+       
+- name: Add Docker's official GPG key
+  get_url:
+     url: https://download.docker.com/linux/ubuntu/gpg
+     dest: /etc/apt/keyrings/docker.asc
+     mode: 0744
+          
+- name: Add the repository to Apt sources  
+  command:
+       echo \
+  "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.asc] https://download.docker.com/linux/ubuntu \
+  $(. /etc/os-release && echo "${UBUNTU_CODENAME:-$VERSION_CODENAME}") stable" | \
+  sudo tee /etc/apt/sources.list.d/docker.list > /dev/null
+  
+- name: 
+  apt:
+    update_cache: true         
+          
+          
+- name: 
+  apt: '{{ docker_packages }}'
+  state: present 
+
+
+
+#k8s 
+#    cni dockerd
+
+- name: 
+  get_url:
+     url: https://raw.githubusercontent.com/projectcalico/calico/v3.30.0/manifests/calico.yaml 
+     dest: /tmp
+   
+     
+             
+          
+         

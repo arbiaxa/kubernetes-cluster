@@ -1,0 +1,169 @@
+#master_node
+  
+- name: Updates
+  apt:
+    update_cache: yes
+
+- name: Disable SWAP
+  shell: |
+    swapoff -a
+
+- name: Disable SWAP in fstab
+  replace:
+     path: /etc/fstab
+     regexp: '^([^#].*?\sswap\s+sw\s+.*)$'
+     replace: '# \1' 
+     
+      
+     
+- name: Create an empty file for the containerd module
+  copy:
+     content:  |
+        overlay
+        br_netfilter
+     dest: /etc/modules-load.d/containerd.conf
+     force: no      
+     
+- name: Create an empty file for the k8s module
+  copy:
+     content:  |
+        - "net.bridge.bridge-nf-call-iptables  = 1"
+        - "net.ipv4.ip_forward                 = 1"
+        - "net.bridge.bridge-nf-call-ip6tables = 1"
+     dest:  /etc/sysctl.d/99-kubernetes-cri.conf
+     force: no           
+     
+         
+     
+     
+- name: immidiatly modules
+  shell: |
+     modprobe overlay
+     modprobe br_netfilter      
+ 
+ 
+ #docker    
+    
+- name: Create apt keyrings directory
+  file:
+     path: /etc/apt/keyrings
+     state: directory
+     mode: '0755'   
+     
+       
+- name: Add Docker's official GPG key
+  get_url:
+     url: https://download.docker.com/linux/ubuntu/gpg
+     dest: /etc/apt/keyrings/docker.asc
+     mode: "0644"
+          
+- name: Add the Docker repository to Apt sources
+  shell: |
+    echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.asc] https://download.docker.com/linux/ubuntu \
+    $(. /etc/os-release && echo "${UBUNTU_CODENAME:-$VERSION_CODENAME}") stable" | \
+    tee /etc/apt/sources.list.d/docker.list > /dev/null
+
+- name: Update apt cache
+  apt:
+    update_cache: yes
+
+        
+          
+- name: docker packages download
+  package:
+    name: '{{ docker_packages }}'
+  tags:
+    - openldap
+    - packages
+
+
+- name: install cri 
+  get_url:
+      url: https://github.com/Mirantis/cri-dockerd/releases/download/v0.3.17/cri-dockerd_0.3.17.3-0.ubuntu-jammy_amd64.deb
+      dest: /tmp
+      
+- name: 
+  apt:
+   deb: /tmp/cri-dockerd_0.3.17.3-0.ubuntu-jammy_amd64.deb
+   state: present      
+
+
+
+#k8s 
+
+- name: Add k8s's official GPG key
+  get_url:
+     url: https://pkgs.k8s.io/core:/stable:/v1.32/deb/Release.key
+     dest: /etc/apt/keyrings/kubernetes-apt-keyring.gpg
+     mode: "0644"
+          
+- name: Add the Docker repository to Apt sources
+  shell: |
+    echo 'deb [signed-by=/etc/apt/keyrings/kubernetes-apt-keyring.gpg] https://pkgs.k8s.io/core:/stable:/v1.32/deb/ /' | sudo tee /etc/apt/sources.list.d/kubernetes.list
+
+
+
+- name: Update apt cache
+  apt:
+    update_cache: yes
+    
+- name: k8s packages download
+  package:
+    name: '{{ kubernetes_packages }}'
+  tags:
+    - openldap
+    - packages    
+    
+
+
+
+#*****master
+
+- name: Initialize the cluster
+  shell: kubeadm init --cri-socket=/var/run/cri-dockerd.sock --pod-network-cidr=10.0.0.0/16
+  args:
+    chdir: /home/arbeya
+    creates: /etc/kubernetes/admin.conf
+
+- name: Create .kube directory
+  become: yes
+  become_user: arbeya
+  file:
+     path: $HOME/.kube
+     state: directory
+     mode: 0755
+
+- name: Copy admin.conf to User's kube config
+  copy:
+     src: /etc/kubernetes/admin.conf
+     dest: /home/arbeya/.kube/config
+     owner: arbeya
+     remote_src: true
+
+
+# cni dockerd
+
+- name: cni
+  get_url:
+     url: https://raw.githubusercontent.com/projectcalico/calico/v3.30.0/manifests/calico.yaml 
+     dest: /tmp
+  
+- name:
+  replace:
+     path: /tmp/calico.yaml
+     regexp: '^#\s*- name: CALICO_IPV4POOL_CIDR\s*\n#\s*value:\s*".*"'
+     replace: '- name: CALICO_IPV4POOL_CIDR\n  value: "10.0.0.0/16"' 
+   
+     
+- name: apply the cni plugin
+  become: yes
+  become_user: arbeya
+  command: kubectl apply -f /tmp/calico.yaml
+
+
+
+
+
+
+
+         
